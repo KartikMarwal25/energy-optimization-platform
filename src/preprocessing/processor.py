@@ -34,11 +34,20 @@ def preprocess_pipeline(df: pd.DataFrame) -> pd.DataFrame:
     df = add_datetime_features(df, ts_col="timestamp")
     df = add_lags_and_rolls(df, value_col="consumption")
 
-    # Scaling numeric features
+    # Scaling numeric features in chunks to avoid large-memory sklearn operations
     num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    scaler = StandardScaler()
     if num_cols:
-        df[num_cols] = scaler.fit_transform(df[num_cols])
+        df[num_cols] = df[num_cols].astype(np.float32)
+        scaler = StandardScaler()
+        chunk_size = 200_000
+        col_idx = [df.columns.get_loc(c) for c in num_cols]
+        for start in range(0, len(df), chunk_size):
+            chunk = df.iloc[start:start + chunk_size, col_idx].to_numpy(dtype=np.float32)
+            scaler.partial_fit(chunk)
+        for start in range(0, len(df), chunk_size):
+            end = start + chunk_size
+            transformed = scaler.transform(df.iloc[start:end, col_idx].to_numpy(dtype=np.float32))
+            df.iloc[start:end, col_idx] = transformed
 
     os.makedirs(os.path.dirname(settings.DATA_PROCESSED), exist_ok=True)
     df.to_csv(settings.DATA_PROCESSED, index=False)

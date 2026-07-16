@@ -24,55 +24,74 @@ def _detect_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
 
 
 def _read_and_standardize(file):
-    df = pd.read_csv(file, low_memory=False, skipinitialspace=True)
+    def _standardize_df(df: pd.DataFrame) -> pd.DataFrame:
+        meter_col = _detect_column(df, ["LCLid", "meter_id", "meter", "id"])
 
-    meter_col = _detect_column(df, ["LCLid", "meter_id", "meter", "id"])
+        ts_col = _detect_column(
+            df,
+            ["timestamp", "date", "day", "datetime", "localminute", "reading_timestamp", "tstp"]
+        )
 
-    ts_col = _detect_column(
-        df,
-        ["timestamp", "date", "day", "datetime", "localminute", "reading_timestamp", "tstp"]
-    )
+        val_col = _detect_column(
+            df,
+            [
+                "energy(kWh/hh)",
+                "energy(kwh/hh)",
+                "energy_sum",
+                "energy_mean",
+                "energy_median",
+                "consumption",
+                "energy",
+                "value",
+                "usage",
+                "kwh",
+            ]
+        )
 
-    val_col = _detect_column(
-        df,
-        [
-            "energy(kWh/hh)",
-            "energy(kwh/hh)",
-            "energy_sum",
-            "energy_mean",
-            "energy_median",
-            "consumption",
-            "energy",
-            "value",
-            "usage",
-            "kwh",
-        ]
-    )
+        rename_map = {}
+        if meter_col:
+            rename_map[meter_col] = "meter_id"
+        if ts_col:
+            rename_map[ts_col] = "timestamp"
+        if val_col:
+            rename_map[val_col] = "consumption"
 
-    rename_map = {}
+        if rename_map:
+            df = df.rename(columns=rename_map)
 
-    if meter_col:
-        rename_map[meter_col] = "meter_id"
+        # Remove duplicate columns
+        df = df.loc[:, ~df.columns.duplicated()]
 
-    if ts_col:
-        rename_map[ts_col] = "timestamp"
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        if "consumption" in df.columns:
+            df["consumption"] = pd.to_numeric(df["consumption"], errors="coerce")
 
-    if val_col:
-        rename_map[val_col] = "consumption"
+        return df
 
-    if rename_map:
-        df = df.rename(columns=rename_map)
-
-    # Remove duplicate columns
-    df = df.loc[:, ~df.columns.duplicated()]
-
-    if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-
-    if "consumption" in df.columns:
-        df["consumption"] = pd.to_numeric(df["consumption"], errors="coerce")
-
-    return _downcast_dataframe(df)
+    # Try a normal read first, fall back to chunked or python-engine reads on failure
+    try:
+        df = pd.read_csv(file, low_memory=False, skipinitialspace=True)
+        return _downcast_dataframe(_standardize_df(df))
+    except (MemoryError, pd.errors.ParserError, OSError) as e:
+        logger.warning(f"Primary read failed for {file}: {e}; attempting streaming/chunked read")
+        parts = []
+        try:
+            for chunk in pd.read_csv(file, chunksize=200000, iterator=True, low_memory=True, skipinitialspace=True):
+                try:
+                    parts.append(_standardize_df(chunk))
+                except Exception as se:
+                    logger.exception(f"Failed to standardize chunk from {file}: {se}")
+            if parts:
+                return _downcast_dataframe(pd.concat(parts, ignore_index=True))
+        except Exception as ce:
+            logger.warning(f"Chunked read failed for {file}: {ce}; trying python engine fallback")
+            try:
+                df = pd.read_csv(file, engine="python", low_memory=True, skipinitialspace=True)
+                return _downcast_dataframe(_standardize_df(df))
+            except Exception as fe:
+                logger.exception(f"Failed to read {file} with fallback engines: {fe}")
+                raise
 
 
 def _list_block_files(folder: str) -> list[str]:
@@ -235,7 +254,7 @@ def load_raw_data(force_reload: bool = False) -> pd.DataFrame:
 
     # Standardize column names
     if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", infer_datetime_format=True)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
     else:
         # Try to find a timestamp-like column
         ts = _detect_column(df,[
@@ -248,7 +267,7 @@ def load_raw_data(force_reload: bool = False) -> pd.DataFrame:
     ])
         if ts:
             df = df.rename(columns={ts: "timestamp"})
-            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", infer_datetime_format=True)
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 
     # Ensure meter id
     mid = _detect_column(df, ["LCLid", "meter_id", "meter", "id"])
@@ -320,7 +339,7 @@ def load_raw_data(force_reload: bool = False) -> pd.DataFrame:
         wd = weather_daily.copy()
         wts = _detect_column(wd, ["date", "timestamp", "day"]) or "date"
         if wts in wd.columns:
-            wd[wts] = pd.to_datetime(wd[wts], errors="coerce", infer_datetime_format=True).dt.date
+            wd[wts] = pd.to_datetime(wd[wts], errors="coerce").dt.date
             df["ts_date"] = df["timestamp"].dt.date
             try:
                 df = df.merge(wd, left_on="ts_date", right_on=wts, how="left")
@@ -344,7 +363,7 @@ def load_raw_data(force_reload: bool = False) -> pd.DataFrame:
         bh = bank_holidays.copy()
         date_col = _detect_column(bh, ["date", "holiday_date"]) or None
         if date_col and date_col in bh.columns:
-            bh[date_col] = pd.to_datetime(bh[date_col], errors="coerce", infer_datetime_format=True).dt.date
+            bh[date_col] = pd.to_datetime(bh[date_col], errors="coerce").dt.date
             df["is_holiday"] = df["timestamp"].dt.date.isin(bh[date_col]).astype(int)
         else:
             df["is_holiday"] = 0
@@ -366,11 +385,11 @@ def load_raw_data(force_reload: bool = False) -> pd.DataFrame:
     # Lags and rolling features per meter
     if "meter_id" in df.columns and "consumption" in df.columns and "timestamp" in df.columns:
         df = df.sort_values(["meter_id", "timestamp"]) 
-        df["lag_1"] = df.groupby("meter_id")["consumption"].shift(1)
-        df["lag_2"] = df.groupby("meter_id")["consumption"].shift(2)
-        df["lag_3"] = df.groupby("meter_id")["consumption"].shift(3)
-        df["roll_mean_3"] = df.groupby("meter_id")["consumption"].rolling(window=3, min_periods=1).mean().reset_index(level=0, drop=True)
-        df["roll_std_3"] = df.groupby("meter_id")["consumption"].rolling(window=3, min_periods=1).std().reset_index(level=0, drop=True).fillna(0)
+        df["lag_1"] = df.groupby("meter_id", observed=False)["consumption"].shift(1)
+        df["lag_2"] = df.groupby("meter_id", observed=False)["consumption"].shift(2)
+        df["lag_3"] = df.groupby("meter_id", observed=False)["consumption"].shift(3)
+        df["roll_mean_3"] = df.groupby("meter_id", observed=False)["consumption"].rolling(window=3, min_periods=1).mean().reset_index(level=0, drop=True)
+        df["roll_std_3"] = df.groupby("meter_id", observed=False)["consumption"].rolling(window=3, min_periods=1).std().reset_index(level=0, drop=True).fillna(0)
 
     # Final cleanup: fill NA numeric with 0, drop temporary cols
     num_cols = df.select_dtypes(include=[np.number]).columns

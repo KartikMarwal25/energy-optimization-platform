@@ -32,5 +32,6 @@ def add_lags_and_rolls(df: pd.DataFrame, value_col: str = "consumption", lags: i
         df[f"lag_{lag}"] = df[value_col].shift(lag)
     df[f"roll_mean_{lags}"] = df[value_col].rolling(window=lags).mean()
     df[f"roll_std_{lags}"] = df[value_col].rolling(window=lags).std().fillna(0)
-    df = df.fillna(0)
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    df[num_cols] = df[num_cols].fillna(0)
     return df
