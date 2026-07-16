@@ -237,15 +237,26 @@ def main():
 
     if choice == "Anomaly Detection":
         st.header("Anomaly Detection")
-        st.write("Anomaly detection can be expensive on large datasets, so this app runs analytics on a sample of the data.")
+        total_rows = len(processed)
+        st.write("Anomaly detection can be expensive on large datasets. Use a smaller sample size for faster results.")
+        st.write(f"Processed dataset rows: {total_rows}")
+        max_limit = min(100000, total_rows)
+        default_rows = min(50000, max_limit)
+        step = 1000 if max_limit > 1000 else 1
+        max_rows = st.slider("Anomaly detection sample size (rows)", min_value=1, max_value=max_limit, value=default_rows, step=step)
+        if total_rows > 50000:
+            st.warning("Large datasets require more time and compute. Use a smaller sample size for anomaly detection to reduce cost and runtime.")
+        else:
+            st.info("For smaller datasets, anomaly detection is faster and more reliable.")
+
         ad = AnomalyDetector(processed)
         if 'anomalies' not in st.session_state:
             st.session_state['anomalies'] = pd.DataFrame()
         if st.button("Run anomaly detection"):
             with st.spinner("Running anomaly detection on a sampled dataset..."):
-                anomalies = ad.run_all()
+                anomalies = ad.run_all(max_rows=max_rows)
                 st.session_state['anomalies'] = anomalies
-            st.success(f"Found {len(anomalies)} anomaly rows")
+            st.success(f"Found {len(anomalies)} anomaly rows using up to {max_rows} rows.")
         else:
             if st.session_state['anomalies'].empty:
                 st.info("Click the button above to start anomaly detection.")
