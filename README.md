@@ -7,36 +7,53 @@ An interactive, modular **Streamlit-powered energy analytics and predictive opti
 ## 🚀 Interactive Features & Architecture
 
 ```mermaid
-graph TD
-    A[Raw Smart Meter Data] -->|ETL Preprocessing| B(SQLite Database & Pandas DataFrame)
-    B --> C[EDA Plots & Stats]
-    B --> D[Forecasting Models - XGBoost/LGBM/CatBoost/RF]
-    B --> E[Anomaly Detectors - Isolation Forest/DBSCAN/LOF]
-    B --> F[K-Means Customer Segmentation]
-    D & E & F --> G[Optimization Recommendation Engine]
-    G --> H[SHAP Explainability Helpers]
-    G --> I[MLflow Registry & Performance Metrics]
-    I --> J[Executive Reports - PDF/HTML/PPTX/Excel/CSV]
+flowchart TB
+    %% Class Definitions
+    classDef data fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
+    classDef model fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#e65100;
+    classDef opt fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
+    classDef report fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px,color:#4a148c;
+
+    subgraph Data_Pipeline ["📁 DATA INGESTION & PIPELINE"]
+        A[Raw Smart Meter Data] -->|ETL Preprocessing & Lag Feature Engineering| B[(SQLite Database)]
+        B --> C[Pandas DataFrames]
+    end
+
+    subgraph Analytical_Engines ["🧠 INTELLIGENCE ENGINES"]
+        C --> D[Exploratory Data Analysis EDA]
+        C --> E[Forecasting Engine XGBoost/LGBM/CatBoost/RF]
+        C --> F[Anomaly Consensus isolation Forest/LOF/DBSCAN/SVM]
+        C --> G[K-Means Customer Segmentation]
+    end
+
+    subgraph Optimization_Layer ["💡 OPTIMIZATION & EXPLAINABILITY"]
+        E & F & G --> H[Optimization Recommendation Engine]
+        E & G --> I[SHAP Model Explainability]
+    end
+
+    subgraph Output_Layer ["📑 ENTERPRISE DELIVERABLES"]
+        H --> K[SQLite Metadata Leaderboard]
+        H --> L[Executive Reports PDF/HTML/PPTX/Excel]
+    end
+
+    %% Class Assignments
+    class A,B,C data;
+    class D,E,F,G model;
+    class H,I opt;
+    class K,L report;
 ```
 
 ---
 
 ## 🛠️ App Navigation & Workings
 
-Choose a tab from the Streamlit sidebar menu to navigate the grid management portal. Click on each section below to see how it works and where to add your custom interface screenshots.
+Choose a tab from the Streamlit sidebar menu to navigate the grid management portal. Click on each section below to see how it works and view its interface.
 
 <details>
 <summary><b>🏠 Home Dashboard (Overview)</b></summary>
 
 * **What it does**: Displays the dataset's top records and shows high-level descriptive statistics.
 * **Database Sync**: Instantly connects to the SQLite backend database storing telemetry data.
-* **Placeholder for User Screenshot**:
-  <!-- Add your Home Dashboard screenshot here -->
-  ```html
-  <div align="center">
-    <img src="https://via.placeholder.com/800x450.png?text=Dashboard+Overview+Screenshot" width="800" alt="Home Dashboard Overview" />
-  </div>
-  ```
 </details>
 
 <details>
@@ -246,18 +263,3 @@ energy-optimization-platform/
 └── reports/
     └── figs/                   # Cached figures (PNGs & interactive HTMLs)
 ```
-
----
-
-## 🖼️ How to Add Your Custom Screenshots
-
-When you take screenshots of the running Streamlit interface, place them in the `reports/figs/` directory and update the placeholders inside `README.md` as follows:
-
-1. Save the screenshots (e.g., `home_dashboard.png`, `forecasting.png`) in `reports/figs/`.
-2. Locate the `<details>` section for that tab in this `README.md` file.
-3. Replace the placeholder URL:
-   ```diff
-   - <img src="https://via.placeholder.com/800x450.png?text=Dashboard+Overview+Screenshot" width="800" ... />
-   + <img src="reports/figs/home_dashboard.png" width="800" alt="Home Dashboard Overview" />
-   ```
-4. Save the file. GitHub/GitLab will instantly render the relative images in the repository home page!
