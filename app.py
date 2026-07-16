@@ -355,29 +355,30 @@ def main():
                 st.info('Note: ' + ' '.join(res.get('notes', [])))
             try:
                 import shap
+                import matplotlib.pyplot as plt
                 shap_values = res['shap_values']
+
                 st.subheader('SHAP summary (bar)')
-                fig = shap.plots.bar(shap_values, show=False)
-                if fig is not None:
-                    try:
-                        st.pyplot(fig, bbox_inches='tight')
-                    except Exception:
-                        try:
-                            st.pyplot(fig)
-                        except Exception:
-                            pass
+                plt.clf()
+                shap.plots.bar(shap_values, show=False)
+                fig = plt.gcf()
+                try:
+                    st.pyplot(fig)
+                except Exception:
+                    st.write('Could not render SHAP bar plot directly.')
 
                 st.subheader('SHAP beeswarm')
                 try:
-                    beeswarm_fig = shap.plots.beeswarm(shap_values, show=False)
-                    if beeswarm_fig is not None:
-                        st.pyplot(beeswarm_fig, bbox_inches='tight')
+                    plt.clf()
+                    shap.plots.beeswarm(shap_values, show=False)
+                    beeswarm_fig = plt.gcf()
+                    st.pyplot(beeswarm_fig)
                 except Exception:
                     try:
                         f_html = shap.plots.force(shap_values).html()
                         components.html(f_html, height=600)
                     except Exception as e:
-                        st.write('Could not render beeswarm/force plot:', e)
+                        st.write('Could not render SHAP beeswarm/force plot:', e)
             except Exception as e:
                 st.error(f'Error rendering SHAP plots: {e}')
 
