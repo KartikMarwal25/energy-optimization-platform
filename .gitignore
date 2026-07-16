@@ -1,0 +1,114 @@
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+*.dylib
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env/
+
+# Packaging artifacts
+build/
+dist/
+.eggs/
+*.egg
+*.egg-info/
+*.whl
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Test artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+
+# Type check / lint cache
+.mypy_cache/
+.pyright/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / editor
+.vscode/
+*.code-workspace
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Streamlit and local runtime
+.streamlit/
+
+# Project data and artifacts
+data/raw/
+data/processed/
+models/
+logs/
+reports/
+*.sqlite
+*.sqlite3
+*.db
+*.parquet
+*.pkl
+*.joblib
+*.h5
+*.hdf5
+*.onnx
+
+# Local agent and tool artifacts
+.agents/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual Environment
+.venv/
+venv/
+
+# VS Code
+.vscode/
+
+# Models
+models/
+*.pkl
+*.joblib
+
+# Data
+data/raw/
+data/processed/
+
+# Logs
+logs/
+*.log
+
+# Streamlit
+.streamlit/
+
+# CatBoost
+catboost_info/
+
+# OS
+.DS_Store
+Thumbs.db

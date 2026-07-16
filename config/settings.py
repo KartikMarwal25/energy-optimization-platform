@@ -1,0 +1,5 @@
+DATA_RAW = "data/raw/smart_meters_london.csv"
+DATA_PROCESSED = "data/processed/processed_data.csv"
+DB_PATH = "data/processed/database.sqlite"
+FIG_DIR = "reports/figs"
+MODEL_DIR = "models"
