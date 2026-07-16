@@ -89,3 +89,52 @@ class ModelManager:
             return ""
         best_row = self.results.sort_values('rmse').iloc[0]
         return best_row['model']
+
+    def forecast_consumer(self, consumer_id: str, horizon_days: int = 30) -> pd.DataFrame:
+        """Simple consumer-level forecast: daily aggregation + linear trend prediction with CI."""
+        df = self.df.copy()
+        if 'meter_id' not in df.columns:
+            raise ValueError('meter_id column required for consumer forecast')
+        dfc = df[df['meter_id'] == consumer_id].dropna(subset=['consumption', 'timestamp']).copy()
+        if dfc.empty:
+            return pd.DataFrame()
+        # daily sum
+        dfc['date'] = pd.to_datetime(dfc['timestamp']).dt.date
+        daily = dfc.groupby('date')['consumption'].sum().reset_index()
+        daily['date'] = pd.to_datetime(daily['date'])
+        daily = daily.sort_values('date')
+        daily['t'] = (daily['date'] - daily['date'].min()).dt.days
+
+        # Fit simple linear regression on days
+        X = daily[['t']].to_numpy()
+        y = daily['consumption'].to_numpy()
+        if len(y) < 3:
+            # fallback to naive mean forecast
+            mean_val = float(y.mean())
+            last_date = daily['date'].max()
+            future_dates = [last_date + pd.Timedelta(days=i) for i in range(1, horizon_days+1)]
+            out = pd.DataFrame({'date': future_dates, 'forecast': [mean_val]*horizon_days})
+            out['lower'] = out['forecast'] * 0.95
+            out['upper'] = out['forecast'] * 1.05
+            return out
+
+        from sklearn.linear_model import LinearRegression
+        model = LinearRegression()
+        model.fit(X, y)
+        preds_train = model.predict(X)
+        resid = y - preds_train
+        resid_std = float(resid.std(ddof=1)) if len(resid) > 1 else 0.0
+
+        last_t = int(daily['t'].max())
+        future_t = [[last_t + i] for i in range(1, horizon_days+1)]
+        future_dates = [daily['date'].max() + pd.Timedelta(days=i) for i in range(1, horizon_days+1)]
+        y_pred = model.predict(future_t)
+
+        df_out = pd.DataFrame({
+            'date': future_dates,
+            'forecast': y_pred
+        })
+        # 95% CI using residual std (approximate)
+        df_out['lower'] = df_out['forecast'] - 1.96 * resid_std
+        df_out['upper'] = df_out['forecast'] + 1.96 * resid_std
+        return df_out
