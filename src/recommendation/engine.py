@@ -80,61 +80,54 @@ class RecommendationEngine:
                         'next_step': 'Validate the forecast against planned operations before scheduling demand response.',
                     })
 
-        # From anomalies: create tailored suggestions per anomaly row
+        # From anomalies: one recommendation per meter and issue type, so a meter
+        # with many flagged readings appears once, with the count as evidence.
         if anomalies is not None and not anomalies.empty:
-            # compute historical medians per meter for context
-            medians = None
+            a = anomalies.copy()
+            if 'meter_id' not in a.columns:
+                a['meter_id'] = 'unknown'
+            a['meter_id'] = a['meter_id'].astype(str)
+            a['ts'] = pd.to_datetime(a['timestamp'], errors='coerce') if 'timestamp' in a.columns else pd.NaT
+            medians = pd.Series(dtype=float)
             if 'meter_id' in self.df.columns and 'consumption' in self.df.columns:
-                medians = self.df.groupby(self.df['meter_id'].astype(str))['consumption'].median()
-
-            # A large anomalous sample can contain thousands of correlated
-            # readings. Surface a reviewable queue, rather than flooding the
-            # operator with one recommendation per row.
-            for idx, row in anomalies.head(50).iterrows():
-                mid = row.get('meter_id', None)
-                cons = row.get('consumption', None)
-                ts = row.get('timestamp', None)
-                suggestion = 'Inspect meter/installation for faults or unusual behavior'
-                issue = 'Anomaly detected'
-
-                # Heuristic: large spike
-                try:
-                    if cons is not None and medians is not None and mid is not None:
-                        hist_med = medians.get(str(mid), None)
-                        if hist_med is not None and cons > hist_med * 1.5:
-                            issue = f'Consumption spike for {mid}'
-                            suggestion = 'High spike observed; check for short-term high-load events or mis-metering.'
-                        elif hist_med is not None and cons < hist_med * 0.5:
-                            issue = f'Unusually low consumption for {mid}'
-                            suggestion = 'Possible outage or meter reporting issue; verify connectivity and recent maintenance.'
-                except Exception:
-                    pass
-
-                # Time-based hint
-                try:
-                    if ts is not None:
-                        # try to parse hour
-                        import pandas as _pd
-                        h = None
-                        if not pd.isna(ts):
-                            t = _pd.to_datetime(ts, errors='coerce')
-                            if not pd.isna(t):
-                                h = t.hour
-                        if h is not None and h in [0,1,2,3,4,5,6]:
-                            suggestion += ' Occurs during night hours — consider checking overnight processes or unauthorized consumption.'
-                except Exception:
-                    pass
-
-                recs.append({
-                    'issue': issue,
+                medians = self.df.groupby(self.df['meter_id'].astype(str), observed=True)['consumption'].median()
+            a['typical'] = a['meter_id'].map(medians)
+            cons = pd.to_numeric(a['consumption'], errors='coerce') if 'consumption' in a.columns else pd.Series(np.nan, index=a.index)
+            a['cons'] = cons
+            ratio = cons / a['typical'].replace(0, np.nan)
+            a['kind'] = np.where(ratio > 1.5, 'spike', np.where(ratio < 0.5, 'low', 'other'))
+            # Daily data has one midnight timestamp per reading, so hour-of-day says nothing there.
+            subdaily = 'hour' in self.df.columns and self.df['hour'].nunique() > 1
+            texts = {
+                'spike': ('Consumption spike for {m}', 'High spike observed; check for short-term high-load events or mis-metering.'),
+                'low': ('Unusually low consumption for {m}', 'Possible outage or meter reporting issue; verify connectivity and recent maintenance.'),
+                'other': ('Anomaly detected for {m}', 'Inspect meter/installation for faults or unusual behavior.'),
+            }
+            anomaly_recs = []
+            for (mid, kind), g in a.groupby(['meter_id', 'kind']):
+                issue, suggestion = texts[kind]
+                n = len(g)
+                parts = [f'{n} flagged reading{"s" if n != 1 else ""}']
+                if g['ts'].notna().any():
+                    parts[0] += f' between {g["ts"].min():%d %b %Y} and {g["ts"].max():%d %b %Y}'
+                typical = g['typical'].iloc[0]
+                if g['cons'].notna().any() and pd.notna(typical) and typical > 0:
+                    extreme = g['cons'].max() if kind != 'low' else g['cons'].min()
+                    parts.append(f'{"peak" if kind != "low" else "lowest"} {extreme:.2f} vs typical {typical:.2f} ({extreme / typical:.1f}x)')
+                if subdaily and g['ts'].notna().any() and (g['ts'].dt.hour <= 6).mean() > 0.5:
+                    suggestion += ' Most flagged readings fall at night; check overnight processes or unauthorized consumption.'
+                anomaly_recs.append({
+                    'issue': issue.format(m=mid),
                     'suggestion': suggestion,
                     'estimated_monthly_savings': 0.0,
                     'meter_id': mid,
-                    'anomaly_index': idx,
-                    'evidence': 'Flagged by the anomaly-detection workflow; it is not a fault diagnosis.',
+                    'flagged_readings': n,
+                    'evidence': '; '.join(parts) + '. Flagged by anomaly detection; this is not a fault diagnosis.',
                     'confidence': 'Review required',
                     'next_step': 'Compare against maintenance records and meter telemetry before taking action.',
                 })
+            anomaly_recs.sort(key=lambda r: -r['flagged_readings'])
+            recs.extend(anomaly_recs[:20])
 
         # From segments: suggest targeted actions for High usage segments
         if segments is not None and not segments.empty and 'segment' in segments.columns:

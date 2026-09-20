@@ -20,7 +20,7 @@ class ClusterEngine:
         if 'consumption' not in df.columns:
             raise ValueError("consumption column required for customer segmentation")
         df['consumption'] = pd.to_numeric(df['consumption'], errors='coerce').fillna(0)
-        grouped = df.groupby('meter_id', observed=False)
+        grouped = df.groupby('meter_id', observed=True)
         features = grouped['consumption'].agg(
             consumption='mean',
             peak_consumption='max',

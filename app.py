@@ -4,7 +4,7 @@ import glob
 import streamlit.components.v1 as components
 import pandas as pd
 from src.database.db import Database
-from src.preprocessing.data_loader import load_raw_data, ensure_data_present
+from src.preprocessing.data_loader import load_raw_data, ensure_data_present, _read_and_standardize
 from src.preprocessing.processor import preprocess_pipeline
 from src.eda.plots import generate_all_plots
 from src.forecasting.models import ModelManager
@@ -130,6 +130,8 @@ def main():
     else:
         processed = st.session_state['processed']
 
+    st.session_state.setdefault('data_source', 'Bundled dataset')
+
     def _arrow_safe(df: pd.DataFrame) -> pd.DataFrame:
         df2 = df.copy()
         # convert object and category columns to pandas string dtype to avoid pyarrow numeric inference issues
@@ -146,6 +148,44 @@ def main():
                 except Exception:
                     pass
         return df2
+
+    MODEL_EXTS = ('*.pkl', '*.joblib', '*.sav')
+
+    def _model_files():
+        model_dir = os.path.join(os.getcwd(), 'models')
+        return [os.path.basename(p) for ext in MODEL_EXTS for p in glob.glob(os.path.join(model_dir, ext))]
+
+    def _train_models_ui(key: str):
+        st.caption(f"Models are trained on a random sample of the loaded dataset ({st.session_state.get('data_source', 'loaded data')}).")
+        n_rows = st.slider("Training sample (rows)", 5000, 100000, 30000, step=5000, key=f"train_rows_{key}")
+        if st.button("Train models on current data", key=f"train_btn_{key}"):
+            with st.spinner("Training and comparing models..."):
+                try:
+                    results = ModelManager(processed).train_and_compare(max_rows=n_rows)
+                    if results.empty:
+                        st.error("No model could be trained on this dataset.")
+                    else:
+                        st.success(f"Trained {len(results)} models.")
+                        st.dataframe(_arrow_safe(results[['model', 'mae', 'rmse', 'r2']].sort_values('rmse')), use_container_width=True)
+                except Exception as e:
+                    st.error(f"Training failed: {e}")
+
+    def _use_new_dataset(uploaded):
+        new_raw = _read_and_standardize(uploaded)
+        missing = {'meter_id', 'timestamp', 'consumption'} - set(new_raw.columns)
+        if missing:
+            raise ValueError(f"Missing column(s): {', '.join(sorted(missing))}. Provide a meter id, a timestamp and a consumption column.")
+        new_processed = preprocess_pipeline(new_raw, persist=False)
+        # Everything derived from the previous dataset is now stale.
+        for k in ['forecasts', 'anomalies', 'clusters', 'segments_named', 'segmentation_figs', 'recommendations',
+                  'explain_result', 'eda_figs', 'full_dataset_export']:
+            st.session_state.pop(k, None)
+        db.clear_table('models')
+        for name in _model_files():
+            os.remove(os.path.join('models', name))
+        for path in glob.glob(os.path.join('reports', '*.*')):
+            os.remove(path)
+        st.session_state.update(raw=new_raw, processed=new_processed, data_source=uploaded.name, upload_id=(uploaded.name, uploaded.size))
 
     if choice == "Home":
         st.markdown("""
@@ -175,6 +215,15 @@ def main():
     if choice == "Dataset":
         st.header("Data quality & exploration")
         st.caption("Review the loaded data before generating forecasts or recommendations.")
+        st.markdown(f"**Current dataset:** {st.session_state.get('data_source', 'Bundled dataset')}")
+        uploaded = st.file_uploader("Analyse your own data (CSV with meter id, timestamp and consumption columns)", type="csv")
+        if uploaded is not None and st.session_state.get('upload_id') != (uploaded.name, uploaded.size):
+            with st.spinner("Loading and preparing your data..."):
+                try:
+                    _use_new_dataset(uploaded)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Could not use this file: {e}")
         dataset_view = st.radio(
             "Preview",
             ["Loaded source", "Analytics-ready"],
@@ -446,12 +495,11 @@ def main():
         st.header("Model explainability")
         expl = Explainability(processed)
         model_dir = os.path.join(os.getcwd(), 'models')
-        model_files = []
-        if os.path.exists(model_dir):
-            model_files = [os.path.basename(p) for p in glob.glob(os.path.join(model_dir, '*.pkl')) + glob.glob(os.path.join(model_dir, '*.joblib')) + glob.glob(os.path.join(model_dir, '*.sav'))]
+        model_files = _model_files()
 
         if not model_files:
-            st.info('No saved models found in the models/ directory. Save a model (joblib) to run SHAP explanations.')
+            st.info('No trained models yet. Train them on the current dataset to run SHAP explanations.')
+            _train_models_ui('explain')
         else:
             sel = st.selectbox('Select model file', options=model_files)
             nsamples = st.slider('SHAP sample size', min_value=10, max_value=1000, value=100, step=10)
@@ -500,6 +548,8 @@ def main():
     if choice == "Model Performance":
         st.header("Model performance")
         st.write("Saved model metrics, metadata, and model analysis are shown below.")
+        with st.expander("Train or retrain models on the current dataset", expanded=not _model_files()):
+            _train_models_ui('perf')
 
         models_df = db.query_table('models')
         if not models_df.empty:
@@ -531,9 +581,7 @@ def main():
             st.info('No model metadata found in the database yet.')
 
         model_dir = os.path.join(os.getcwd(), 'models')
-        model_files = []
-        if os.path.exists(model_dir):
-            model_files = [os.path.basename(p) for p in glob.glob(os.path.join(model_dir, '*.pkl')) + glob.glob(os.path.join(model_dir, '*.joblib')) + glob.glob(os.path.join(model_dir, '*.sav'))]
+        model_files = _model_files()
 
         if model_files:
             st.subheader('Saved Model Files')
@@ -607,7 +655,20 @@ def main():
 
     if choice == "Reports":
         st.header("Executive reporting")
-        st.write("See reports/ for generated summaries, charts, and executive export files.")
+        st.write("The report is built from the dataset currently loaded and the analyses you have run in this session. Nothing is pre-generated.")
+        data_source = st.session_state.get('data_source', 'Bundled dataset')
+        status = {
+            'Forecasts': bool(st.session_state.get('forecasts')),
+            'Anomaly detection': not st.session_state.get('anomalies', pd.DataFrame()).empty,
+            'Customer segments': not st.session_state.get('segments_named', pd.DataFrame()).empty,
+            'Recommendations': not st.session_state.get('recommendations', pd.DataFrame()).empty,
+            'Trained models': not db.query_table('models').empty,
+        }
+        st.markdown(f"**Dataset:** {data_source}")
+        st.markdown("**Included:** " + (", ".join(k for k, v in status.items() if v) or "none yet"))
+        not_run = [k for k, v in status.items() if not v]
+        if not_run:
+            st.warning("Not yet run, so left out of the report: " + ", ".join(not_run) + ". Run them from their pages first for a complete report.")
 
         if st.button("Generate Executive Report"):
             with st.spinner("Compiling executive report..."):
@@ -643,7 +704,7 @@ def main():
                 summary_text = '\n'.join(summary_lines)
                 report_context = {
                     'title': 'Energy Operations Executive Report',
-                    'subtitle': f'Reporting period: {report_period}',
+                    'subtitle': f'Dataset: {data_source}. Reporting period: {report_period}',
                     'kpis': [
                         {'label': 'Meter readings', 'value': f'{num_rows:,}', 'detail': 'Validated records in scope'},
                         {'label': 'Active meters', 'value': f'{num_consumers:,}', 'detail': 'Distinct meter identifiers'},

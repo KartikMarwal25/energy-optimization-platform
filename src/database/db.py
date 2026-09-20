@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Table, MetaData
+from sqlalchemy import text, create_engine, Column, Integer, String, Float, DateTime, Table, MetaData
 from sqlalchemy.orm import sessionmaker
 import pandas as pd
 import os
@@ -29,3 +29,7 @@ class Database:
     def save_log(self, entry: dict, table_name: str = "logs"):
         df = pd.DataFrame([entry])
         df.to_sql(table_name, self.engine, if_exists="append", index=False)
+
+    def clear_table(self, table_name: str):
+        with self.engine.begin() as conn:
+            conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))

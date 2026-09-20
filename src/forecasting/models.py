@@ -20,9 +20,14 @@ class ModelManager:
         os.makedirs(settings.MODEL_DIR, exist_ok=True)
         self.db = Database(settings.DB_PATH)
 
-    def _prepare(self, target_col: str = "consumption"):
+    def _prepare(self, target_col: str = "consumption", max_rows: int = 30000):
         df = self.df.dropna()
+        if len(df) > max_rows:
+            df = df.sample(max_rows, random_state=42)
         X = df.select_dtypes(include=[np.number]).drop(columns=[target_col], errors='ignore')
+        # energy_* columns are aggregates of the target itself (e.g. energy_mean = consumption / count) and
+        # roll_* windows include the current reading, so keeping either would leak the answer.
+        X = X.drop(columns=[c for c in X.columns if c.startswith(('energy_', 'roll_'))])
         y = df[target_col]
         return train_test_split(X, y, test_size=0.2, random_state=42)
 
@@ -47,8 +52,9 @@ class ModelManager:
         self.db.save_model_metadata(metadata)
         return metadata
 
-    def train_and_compare(self, target_col: str = "consumption") -> pd.DataFrame:
-        X_train, X_test, y_train, y_test = self._prepare(target_col)
+    def train_and_compare(self, target_col: str = "consumption", max_rows: int = 30000) -> pd.DataFrame:
+        X_train, X_test, y_train, y_test = self._prepare(target_col, max_rows)
+        self.db.clear_table("models")  # metadata must describe this run, not earlier datasets
         candidates = {}
         # core candidates
         candidates["LinearRegression"] = LinearRegression()

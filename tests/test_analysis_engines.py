@@ -44,3 +44,29 @@ def test_recommendations_compare_like_for_like_forecast_windows():
     recommendations = RecommendationEngine(df).generate_from_forecast_and_anomalies(forecasts=forecasts)
     assert 'High forecasted consumption for a' in recommendations['issue'].tolist()
     assert recommendations.loc[0, 'confidence'] == 'Medium'
+
+
+def test_segmentation_ignores_unused_meter_categories():
+    df = pd.DataFrame({
+        'meter_id': pd.Categorical(['a', 'b', 'a', 'b'], categories=['a', 'b', 'ghost1', 'ghost2']),
+        'timestamp': pd.date_range('2021-01-01', periods=4, freq='D'),
+        'consumption': [1.0, 5.0, 2.0, 6.0],
+    })
+
+    features = ClusterEngine(df)._consumer_features()
+    assert sorted(features['meter_id'].astype(str)) == ['a', 'b']
+
+
+def test_anomaly_recommendations_list_each_meter_once():
+    df = pd.DataFrame({
+        'meter_id': ['a'] * 6,
+        'timestamp': pd.date_range('2021-01-01', periods=6, freq='D'),
+        'consumption': [1.0, 1.0, 1.0, 1.0, 9.0, 9.0],
+    })
+    anomalies = df.tail(2)
+
+    recs = RecommendationEngine(df).generate_from_forecast_and_anomalies(anomalies=anomalies)
+    assert len(recs) == 1
+    assert recs.loc[0, 'flagged_readings'] == 2
+    assert 'night' not in recs.loc[0, 'suggestion']
+
