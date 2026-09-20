@@ -153,19 +153,42 @@ def main():
         start_2.markdown('<div class="workflow-card"><strong>2 — Find risk</strong><span>Run forecasting and anomaly detection on an appropriately sized sample.</span></div>', unsafe_allow_html=True)
         start_3.markdown('<div class="workflow-card"><strong>3 — Take action</strong><span>Segment consumers, generate recommendations, then export an executive report.</span></div>', unsafe_allow_html=True)
 
-        with st.expander("Inspect dataset preview and descriptive statistics"):
-            st.dataframe(_arrow_safe(processed.head(50)), use_container_width=True)
-            st.markdown("**Basic summary**")
-            st.dataframe(_arrow_safe(processed.describe(include='all').transpose()), use_container_width=True)
+        with st.expander("Inspect a quick dataset preview"):
+            st.dataframe(_arrow_safe(processed.head(25)), use_container_width=True, height=300)
+        st.caption("Open **Data quality & exploration** for focused data previews. Detailed profiling is intentionally kept out of the landing page so navigation stays responsive.")
 
     if choice == "Dataset":
         st.header("Data quality & exploration")
         st.caption("Review the loaded data before generating forecasts or recommendations.")
-        st.subheader("Loaded source sample")
-        st.dataframe(_arrow_safe(raw.head(100)))
-        st.subheader("Analytics-ready sample")
-        st.dataframe(_arrow_safe(processed.head(100)))
-        st.download_button("Download processed CSV", processed.to_csv(index=False), file_name="processed.csv")
+        dataset_view = st.radio(
+            "Preview",
+            ["Loaded source", "Analytics-ready"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        preview_df = raw if dataset_view == "Loaded source" else processed
+        priority_columns = [
+            column for column in ["meter_id", "timestamp", "consumption", "hour", "weekday", "is_weekend", "is_holiday", "is_peak", "lag_1", "roll_mean_3"]
+            if column in preview_df.columns
+        ]
+        preview_columns = priority_columns + [column for column in preview_df.columns if column not in priority_columns][:4]
+        st.subheader(f"{dataset_view} preview")
+        st.caption(f"Showing 25 rows and {len(preview_columns)} of {len(preview_df.columns)} columns. Use the download below for the complete analytics-ready dataset.")
+        st.dataframe(_arrow_safe(preview_df.loc[:, preview_columns].head(25)), use_container_width=True, height=420)
+        st.download_button(
+            "Download displayed preview (CSV)",
+            preview_df.loc[:, preview_columns].head(25).to_csv(index=False).encode("utf-8"),
+            file_name=f"{dataset_view.lower().replace('-', '_').replace(' ', '_')}_preview.csv",
+        )
+        st.caption("The complete dataset is large. Preparing a full export is an intentional background-length operation and will not run while you navigate.")
+        if st.button("Prepare full analytics-ready CSV"):
+            with st.spinner("Preparing the full CSV export…"):
+                export_path = export_csv(processed, name="processed")
+            st.session_state["full_dataset_export"] = export_path
+        export_path = st.session_state.get("full_dataset_export")
+        if export_path and os.path.exists(export_path):
+            with open(export_path, "rb") as export_file:
+                st.download_button("Download full analytics-ready CSV", export_file, file_name="processed.csv")
 
     if choice == "EDA":
         st.header("Demand exploration")
