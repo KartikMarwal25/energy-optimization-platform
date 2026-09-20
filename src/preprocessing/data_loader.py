@@ -197,6 +197,11 @@ def load_raw_data(force_reload: bool = False) -> pd.DataFrame:
     ensure_data_present()
 
     processed_path = os.path.join("data/processed", "processed_energy_data.parquet")
+    # Deployed copies ship without the multi-GB raw data: fall back to the bundled sample.
+    sample_path = os.path.join("data", "sample_energy_data.parquet")
+    if (not os.path.exists(processed_path) and not os.path.exists(settings.DATA_RAW)
+            and not glob.glob("data/raw/*/block_*.csv") and os.path.exists(sample_path)):
+        processed_path = sample_path
     # If already processed and not forcing reload, return it
     if os.path.exists(processed_path) and not force_reload:
         try:
