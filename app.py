@@ -613,20 +613,65 @@ def main():
                 models_df = db.query_table('models')
 
                 top_recs = recs.head(5).to_dict(orient='records') if not recs.empty else []
-                summary_lines = ["Executive Energy Optimization Report", "", f"Dataset rows: {num_rows}", f"Consumers: {num_consumers}", f"Segments: {num_segments}", f"Recommendations generated: {len(top_recs)}"]
-                for r in top_recs:
-                    summary_lines.append(f"- {r.get('issue')}: {r.get('suggestion')}")
+                report_period = "Not available"
+                if 'timestamp' in processed.columns:
+                    report_dates = pd.to_datetime(processed['timestamp'], errors='coerce').dropna()
+                    if not report_dates.empty:
+                        report_period = f"{report_dates.min():%d %b %Y} to {report_dates.max():%d %b %Y}"
+                summary_lines = [
+                    f"This report covers {num_consumers:,} meters and {num_rows:,} readings for {report_period}.",
+                    "It summarizes observed demand patterns and analytical outputs. Validate recommendations against operations, maintenance, and customer constraints before acting.",
+                ]
+                if top_recs:
+                    summary_lines.append(f"{len(top_recs)} priority items are included in the action table.")
                 if models_df is not None and not models_df.empty:
-                    best_models = models_df.sort_values('rmse', ascending=True).head(3)
-                    summary_lines.append("")
-                    summary_lines.append("Best models:")
+                    best_models = models_df.sort_values('rmse', ascending=True).drop_duplicates('model').head(3)
+                    summary_lines.append("Model scores describe fit on held-out data. They do not guarantee future operating conditions.")
                     for _, row in best_models.iterrows():
-                        summary_lines.append(f"- {row.get('model')} RMSE={row.get('rmse'):.3f} R2={row.get('r2', 0):.3f}")
+                        summary_lines.append(f"{row.get('model')}: RMSE {row.get('rmse'):.3f}, R² {row.get('r2', 0):.3f}.")
 
                 summary_text = '\n'.join(summary_lines)
+                report_context = {
+                    'title': 'Energy Operations Executive Report',
+                    'subtitle': f'Reporting period: {report_period}',
+                    'kpis': [
+                        {'label': 'Meter readings', 'value': f'{num_rows:,}', 'detail': 'Validated records in scope'},
+                        {'label': 'Active meters', 'value': f'{num_consumers:,}', 'detail': 'Distinct meter identifiers'},
+                        {'label': 'Customer segments', 'value': str(num_segments), 'detail': 'Available after segmentation'},
+                        {'label': 'Priority findings', 'value': str(len(top_recs)), 'detail': 'Requires operational review'},
+                    ],
+                    'findings': [
+                        {'title': str(item.get('issue', 'Finding')), 'detail': f"{item.get('suggestion', '')} Evidence: {item.get('evidence', 'Review source data before action.')} Next step: {item.get('next_step', 'Validate with the operations team.')}"}
+                        for item in top_recs
+                    ],
+                    'methodology': [
+                        'Consumption values are reported in the source dataset units.',
+                        'Forecasts use the selected baseline method and show an uncertainty interval where available.',
+                        'Anomaly flags identify unusual patterns. They do not diagnose equipment faults.',
+                        'Segments group customers by consumption level, peak load, variability, and timing patterns.',
+                    ],
+                }
 
                 os.makedirs(os.path.join('reports', 'figs'), exist_ok=True)
                 chart_paths = []
+                try:
+                    import plotly.express as px
+                    if {'timestamp', 'consumption'} <= set(processed.columns):
+                        daily_report = processed.assign(_date=pd.to_datetime(processed['timestamp'], errors='coerce').dt.date).dropna(subset=['_date']).groupby('_date')['consumption'].sum().reset_index().tail(365)
+                        if not daily_report.empty:
+                            daily_chart = px.line(daily_report, x='_date', y='consumption', title='Daily consumption trend')
+                            daily_path = os.path.join('reports', 'figs', 'daily_consumption_trend.png')
+                            daily_chart.write_image(daily_path, width=1200, height=550, scale=2)
+                            chart_paths.append(daily_path)
+                    if {'meter_id', 'consumption'} <= set(processed.columns):
+                        top_meter_report = processed.groupby('meter_id')['consumption'].sum().nlargest(10).reset_index()
+                        if not top_meter_report.empty:
+                            meter_chart = px.bar(top_meter_report, x='meter_id', y='consumption', title='Ten meters with the highest total consumption')
+                            meter_path = os.path.join('reports', 'figs', 'top_meter_consumption.png')
+                            meter_chart.write_image(meter_path, width=1200, height=550, scale=2)
+                            chart_paths.append(meter_path)
+                except Exception:
+                    st.info('Static chart export is unavailable. The report will include its written findings and tables.')
                 eda_figs = st.session_state.get('eda_figs', {})
                 try:
                     import plotly.io as pio
@@ -635,7 +680,7 @@ def main():
                             continue
                         out_path = os.path.join('reports', 'figs', f"eda_{name}.png")
                         try:
-                            pio.to_image(fig, file=out_path, format='png')
+                            fig.write_image(out_path)
                             chart_paths.append(out_path)
                         except Exception:
                             pass
@@ -650,7 +695,7 @@ def main():
                             continue
                         out_path = os.path.join('reports', 'figs', f"seg_{name}.png")
                         try:
-                            pio.to_image(fig, file=out_path, format='png')
+                            fig.write_image(out_path)
                             chart_paths.append(out_path)
                         except Exception:
                             pass
@@ -658,6 +703,7 @@ def main():
                     pass
 
                 report_tables = {}
+                report_overview = pd.DataFrame(report_context['kpis'])
                 if not recs.empty:
                     report_tables['Top recommendations'] = recs.head(20)
                 if not segments.empty:
@@ -668,22 +714,27 @@ def main():
                     report_tables['Model metadata'] = models_df.head(20)
 
                 try:
-                    html_path = export_html(summary_text, tables=report_tables, charts=chart_paths, name='executive_report')
+                    html_path = export_html(summary_text, tables=report_tables, charts=chart_paths, name='executive_report', report_context=report_context)
                 except Exception as e:
                     html_path = None
                     st.warning(f"HTML report generation failed: {e}")
 
                 try:
-                    pdf_path = export_pdf(summary_text, tables=report_tables, charts=chart_paths, name='executive_report')
+                    pdf_path = export_pdf(summary_text, tables=report_tables, charts=chart_paths, name='executive_report', report_context=report_context)
                 except Exception as e:
                     pdf_path = None
                     st.warning(f"PDF export skipped: {e}")
 
                 try:
-                    pptx_path = export_pptx(summary_text, charts=chart_paths, dataframes=report_tables, name='executive_report')
+                    pptx_path = export_pptx(summary_text, charts=chart_paths, dataframes=report_tables, name='executive_report', report_context=report_context)
                 except Exception as e:
                     st.error(f"PowerPoint export failed: {e}")
                     pptx_path = None
+                try:
+                    excel_path = export_excel(report_overview, name='executive_report_overview')
+                except Exception as e:
+                    st.warning(f"Excel export skipped: {e}")
+                    excel_path = None
 
             if html_path:
                 st.success(f"Executive HTML report saved: {html_path}")
@@ -697,7 +748,11 @@ def main():
                 st.success(f"Executive PPTX report saved: {pptx_path}")
                 with open(pptx_path, 'rb') as f:
                     st.download_button('Download executive PPTX', data=f, file_name=os.path.basename(pptx_path))
-            if not any([html_path, pdf_path, pptx_path]):
+            if excel_path:
+                st.success(f"Executive Excel overview saved: {excel_path}")
+                with open(excel_path, 'rb') as f:
+                    st.download_button('Download executive Excel', data=f, file_name=os.path.basename(excel_path))
+            if not any([html_path, pdf_path, pptx_path, excel_path]):
                 st.error('No executive report could be created. Check logs above.')
 
     if choice == "Settings":
