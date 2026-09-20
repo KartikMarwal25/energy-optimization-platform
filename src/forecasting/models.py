@@ -90,8 +90,17 @@ class ModelManager:
         best_row = self.results.sort_values('rmse').iloc[0]
         return best_row['model']
 
-    def forecast_consumer(self, consumer_id: str, horizon_days: int = 30) -> pd.DataFrame:
-        """Simple consumer-level forecast: daily aggregation + linear trend prediction with CI."""
+    def forecast_consumer(
+        self,
+        consumer_id: str,
+        horizon_days: int = 30,
+        method: str = "linear_trend",
+    ) -> pd.DataFrame:
+        """Forecast one consumer's daily consumption with a trend or mean baseline."""
+        if horizon_days < 1:
+            raise ValueError("horizon_days must be at least 1")
+        if method not in {"linear_trend", "mean"}:
+            raise ValueError("method must be 'linear_trend' or 'mean'")
         df = self.df.copy()
         if 'meter_id' not in df.columns:
             raise ValueError('meter_id column required for consumer forecast')
@@ -105,20 +114,19 @@ class ModelManager:
         daily = daily.sort_values('date')
         daily['t'] = (daily['date'] - daily['date'].min()).dt.days
 
-        # Fit simple linear regression on days
-        X = daily[['t']].to_numpy()
         y = daily['consumption'].to_numpy()
-        if len(y) < 3:
-            # fallback to naive mean forecast
+        last_date = daily['date'].max()
+        future_dates = [last_date + pd.Timedelta(days=i) for i in range(1, horizon_days + 1)]
+        if method == "mean" or len(y) < 3:
             mean_val = float(y.mean())
-            last_date = daily['date'].max()
-            future_dates = [last_date + pd.Timedelta(days=i) for i in range(1, horizon_days+1)]
-            out = pd.DataFrame({'date': future_dates, 'forecast': [mean_val]*horizon_days})
-            out['lower'] = out['forecast'] * 0.95
-            out['upper'] = out['forecast'] * 1.05
+            uncertainty = float(np.std(y, ddof=1)) if len(y) > 1 else 0.0
+            out = pd.DataFrame({'date': future_dates, 'forecast': [mean_val] * horizon_days})
+            out['lower'] = out['forecast'] - 1.96 * uncertainty
+            out['upper'] = out['forecast'] + 1.96 * uncertainty
             return out
 
         from sklearn.linear_model import LinearRegression
+        X = daily[['t']].to_numpy()
         model = LinearRegression()
         model.fit(X, y)
         preds_train = model.predict(X)
@@ -127,7 +135,6 @@ class ModelManager:
 
         last_t = int(daily['t'].max())
         future_t = [[last_t + i] for i in range(1, horizon_days+1)]
-        future_dates = [daily['date'].max() + pd.Timedelta(days=i) for i in range(1, horizon_days+1)]
         y_pred = model.predict(future_t)
 
         df_out = pd.DataFrame({

@@ -49,7 +49,9 @@ def main():
 
     @st.cache_data(show_spinner=False)
     def _cached_preprocess(df_raw):
-        return preprocess_pipeline(df_raw)
+        # The loader maintains the reusable parquet cache.  Avoid rewriting a
+        # very large CSV on every new Streamlit session.
+        return preprocess_pipeline(df_raw, persist=False)
 
     # Load raw data once and keep in session_state to avoid spinner on every rerun
     if 'raw' not in st.session_state:
@@ -156,7 +158,7 @@ def main():
                 mm = ModelManager(processed)
                 with st.spinner("Running forecast..."):
                     try:
-                        df_fc = mm.forecast_consumer(consumer, horizon_days=horizon)
+                        df_fc = mm.forecast_consumer(consumer, horizon_days=horizon, method=method)
                         st.session_state['forecasts'][key] = df_fc
                     except Exception as e:
                         st.error(f"Forecast failed: {e}")

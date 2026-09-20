@@ -25,8 +25,10 @@ class AnomalyDetector:
         return res[res['if_anomaly'] == 1]
 
     def local_outlier_factor(self, n_neighbors: int = 20, max_rows: int = 50000) -> pd.DataFrame:
-        lof = LocalOutlierFactor(n_neighbors=n_neighbors)
         X = self._sample(self._numeric(), max_rows=max_rows)
+        if len(X) < 3:
+            return self.df.iloc[0:0].copy()
+        lof = LocalOutlierFactor(n_neighbors=min(n_neighbors, len(X) - 1))
         preds = lof.fit_predict(X)
         res = self.df.loc[X.index].copy()
         res['lof_anomaly'] = (preds == -1).astype(int)

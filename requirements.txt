@@ -23,3 +23,5 @@ kaleido
 pyarrow
 openpyxl
 streamlit-option-menu
+Pillow>=10.0.0
+reportlab>=4.0.0

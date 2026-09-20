@@ -26,12 +26,37 @@ def add_datetime_features(df: pd.DataFrame, ts_col: str = "timestamp") -> pd.Dat
     return df
 
 def add_lags_and_rolls(df: pd.DataFrame, value_col: str = "consumption", lags: int = 3) -> pd.DataFrame:
+    """Add chronological lag and rolling features without mixing meter histories."""
     df = df.copy()
-    df = df.sort_values(by="timestamp")
+    if value_col not in df.columns:
+        raise ValueError(f"{value_col!r} column is required for lag features")
+
+    sort_columns = ["timestamp"]
+    group_columns = []
+    if "meter_id" in df.columns:
+        sort_columns.insert(0, "meter_id")
+        group_columns = ["meter_id"]
+    df = df.sort_values(by=sort_columns)
+
+    values = (
+        df.groupby(group_columns, observed=False)[value_col]
+        if group_columns
+        else df[value_col]
+    )
     for lag in range(1, lags+1):
-        df[f"lag_{lag}"] = df[value_col].shift(lag)
-    df[f"roll_mean_{lags}"] = df[value_col].rolling(window=lags).mean()
-    df[f"roll_std_{lags}"] = df[value_col].rolling(window=lags).std().fillna(0)
+        df[f"lag_{lag}"] = values.shift(lag)
+
+    if group_columns:
+        df[f"roll_mean_{lags}"] = values.transform(
+            lambda series: series.rolling(window=lags, min_periods=1).mean()
+        )
+        df[f"roll_std_{lags}"] = values.transform(
+            lambda series: series.rolling(window=lags, min_periods=1).std().fillna(0)
+        )
+    else:
+        df[f"roll_mean_{lags}"] = values.rolling(window=lags, min_periods=1).mean()
+        df[f"roll_std_{lags}"] = values.rolling(window=lags, min_periods=1).std().fillna(0)
+
     num_cols = df.select_dtypes(include=[np.number]).columns
     df[num_cols] = df[num_cols].fillna(0)
     return df

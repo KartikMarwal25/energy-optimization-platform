@@ -14,6 +14,12 @@ class ClusterEngine:
     def run_kmeans(self, max_k: int = 6, sample_size: int = 10000) -> pd.DataFrame:
         X = self._numeric()
         n = len(X)
+        if n == 0:
+            return self.df.assign(cluster=pd.Series(dtype="int64"))
+        if n < 3:
+            res = self.df.copy()
+            res['cluster'] = 0
+            return res
         # choose a sample for silhouette scoring to avoid OOM on large data
         if n > sample_size:
             sample = X.sample(n=sample_size, random_state=42)
@@ -22,7 +28,8 @@ class ClusterEngine:
 
         best_k = 2
         best_score = -1
-        for k in range(2, max_k+1):
+        upper_k = min(max_k, len(sample) - 1)
+        for k in range(2, upper_k + 1):
             km = MiniBatchKMeans(n_clusters=k, random_state=42, batch_size=1024)
             km.fit(sample)
             labels = km.predict(sample)
