@@ -3,6 +3,7 @@ import pandas as pd
 from src.anomaly_detection.detectors import AnomalyDetector
 from src.clustering.cluster import ClusterEngine
 from src.forecasting.models import ModelManager
+from src.recommendation.engine import RecommendationEngine
 
 
 def test_small_datasets_are_supported_by_analysis_engines():
@@ -30,3 +31,16 @@ def test_forecast_returns_requested_horizon():
 
     mean_forecast = ModelManager(df).forecast_consumer('a', horizon_days=3, method='mean')
     assert mean_forecast['forecast'].nunique() == 1
+
+
+def test_recommendations_compare_like_for_like_forecast_windows():
+    df = pd.DataFrame({
+        'meter_id': ['a'] * 4,
+        'timestamp': pd.date_range('2021-01-01', periods=4, freq='D'),
+        'consumption': [10.0, 10.0, 10.0, 10.0],
+    })
+    forecasts = {'a_2_linear_trend': pd.DataFrame({'date': pd.date_range('2021-01-05', periods=2), 'forecast': [20.0, 20.0]})}
+
+    recommendations = RecommendationEngine(df).generate_from_forecast_and_anomalies(forecasts=forecasts)
+    assert 'High forecasted consumption for a' in recommendations['issue'].tolist()
+    assert recommendations.loc[0, 'confidence'] == 'Medium'

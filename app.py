@@ -36,8 +36,13 @@ def apply_dashboard_theme() -> None:
           div[data-testid="stMetric"] { background: #FFFFFF; border: 1px solid #D9E2EC; border-radius: 14px; padding: 1rem 1.15rem; }
           div[data-testid="stMetricLabel"] { color: #627D98; font-size: .82rem; }
           div[data-testid="stMetricValue"] { color: #087E8B; }
-          .stButton > button, .stDownloadButton > button { border-radius: 8px; font-weight: 600; }
-          .stButton > button[kind="primary"] { background: #087E8B; border-color: #087E8B; }
+          .stButton > button, .stDownloadButton > button { background: #087E8B; border: 1px solid #087E8B; border-radius: 8px; color: #FFFFFF !important; font-weight: 650; }
+          .stButton > button *, .stDownloadButton > button * { color: #FFFFFF !important; }
+          .stButton > button:hover, .stDownloadButton > button:hover { background: #055B65; border-color: #055B65; color: #FFFFFF !important; }
+          .stButton > button:focus-visible, .stDownloadButton > button:focus-visible { outline: 3px solid #FFB703; outline-offset: 2px; }
+          .stButton > button:disabled, .stDownloadButton > button:disabled { background: #9FB3C8; border-color: #9FB3C8; color: #F0F4F8 !important; opacity: 1; }
+          div[data-testid="stAlert"] { color: #102A43; }
+          div[data-testid="stAlert"] p { color: #102A43 !important; }
           .hero { background: linear-gradient(120deg, #102A43, #087E8B); border-radius: 18px; color: white; padding: 2rem 2.25rem; margin-bottom: 1.5rem; }
           .hero h2 { color: white; margin: 0 0 .35rem; }
           .hero p { color: #D9F0F3; margin: 0; font-size: 1rem; }

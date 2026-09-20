@@ -11,13 +11,36 @@ class ClusterEngine:
     def _numeric(self):
         return self.df.select_dtypes(include=['number']).fillna(0)
 
+    def _consumer_features(self) -> pd.DataFrame:
+        """Build one meaningful feature row per meter before customer clustering."""
+        if 'meter_id' not in self.df.columns:
+            return self._numeric()
+
+        df = self.df.copy()
+        if 'consumption' not in df.columns:
+            raise ValueError("consumption column required for customer segmentation")
+        df['consumption'] = pd.to_numeric(df['consumption'], errors='coerce').fillna(0)
+        grouped = df.groupby('meter_id', observed=False)
+        features = grouped['consumption'].agg(
+            consumption='mean',
+            peak_consumption='max',
+            consumption_variability='std',
+            total_consumption='sum',
+        ).fillna(0)
+        if 'is_peak' in df.columns:
+            features['peak_period_share'] = grouped['is_peak'].mean().fillna(0)
+        if 'is_weekend' in df.columns:
+            features['weekend_share'] = grouped['is_weekend'].mean().fillna(0)
+        return features.reset_index()
+
     def run_kmeans(self, max_k: int = 6, sample_size: int = 10000) -> pd.DataFrame:
-        X = self._numeric()
+        consumer_features = self._consumer_features()
+        X = consumer_features.select_dtypes(include=['number']).fillna(0)
         n = len(X)
         if n == 0:
-            return self.df.assign(cluster=pd.Series(dtype="int64"))
+            return consumer_features.assign(cluster=pd.Series(dtype="int64"))
         if n < 3:
-            res = self.df.copy()
+            res = consumer_features.copy()
             res['cluster'] = 0
             return res
         # choose a sample for silhouette scoring to avoid OOM on large data
@@ -44,14 +67,18 @@ class ClusterEngine:
         # fit on full data using MiniBatchKMeans for memory efficiency
         final_km = MiniBatchKMeans(n_clusters=best_k, random_state=42, batch_size=4096)
         final_km.fit(X)
-        res = self.df.copy()
+        res = consumer_features.copy()
         res['cluster'] = final_km.predict(X)
         return res
 
     def gaussian_mixture(self, n_components: int = 3) -> pd.DataFrame:
-        X = self._numeric()
-        gm = GaussianMixture(n_components=n_components, random_state=42).fit(X)
-        res = self.df.copy()
+        consumer_features = self._consumer_features()
+        X = consumer_features.select_dtypes(include=['number']).fillna(0)
+        if len(X) < 2:
+            return consumer_features.assign(gmm_cluster=0)
+        components = min(n_components, len(X))
+        gm = GaussianMixture(n_components=components, random_state=42).fit(X)
+        res = consumer_features.copy()
         res['gmm_cluster'] = gm.predict(X)
         return res
 

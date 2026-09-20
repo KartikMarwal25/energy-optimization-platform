@@ -60,18 +60,24 @@ class RecommendationEngine:
                     parts = str(k).split('_')
                     consumer = parts[0] if parts else None
 
-                # estimate historical avg for this consumer if available in self.df
-                hist_avg = None
+                # Compare the forecast to the equivalent recent historical
+                # window, not to the entire customer history.
+                historical_window_total = None
                 if consumer is not None and 'meter_id' in self.df.columns:
-                    hist = self.df[self.df['meter_id'].astype(str) == str(consumer)]
-                    if not hist.empty and 'consumption' in hist.columns:
-                        hist_avg = hist['consumption'].sum()
-                if hist_avg and hist_avg > 0 and total_fc > hist_avg * 1.15:
+                    hist = self.df[self.df['meter_id'].astype(str) == str(consumer)].copy()
+                    if not hist.empty and {'consumption', 'timestamp'} <= set(hist.columns):
+                        hist['date'] = pd.to_datetime(hist['timestamp'], errors='coerce').dt.date
+                        daily = hist.dropna(subset=['date']).groupby('date')['consumption'].sum().sort_index()
+                        historical_window_total = float(daily.tail(len(df_fc)).sum())
+                if historical_window_total and historical_window_total > 0 and total_fc > historical_window_total * 1.15:
                     recs.append({
                         'issue': f'High forecasted consumption for {consumer}',
                         'suggestion': 'Investigate load shifting or temporary demand response during forecasted peak period',
-                        'estimated_monthly_savings': round((total_fc - hist_avg) * 0.1, 2),
-                        'meter_id': consumer
+                        'estimated_monthly_savings': round((total_fc - historical_window_total) * 0.1, 2),
+                        'meter_id': consumer,
+                        'evidence': f'Forecast is {(total_fc / historical_window_total - 1):.0%} above the previous {len(df_fc)}-day total.',
+                        'confidence': 'Medium',
+                        'next_step': 'Validate the forecast against planned operations before scheduling demand response.',
                     })
 
         # From anomalies: create tailored suggestions per anomaly row
@@ -81,7 +87,10 @@ class RecommendationEngine:
             if 'meter_id' in self.df.columns and 'consumption' in self.df.columns:
                 medians = self.df.groupby(self.df['meter_id'].astype(str))['consumption'].median()
 
-            for idx, row in anomalies.iterrows():
+            # A large anomalous sample can contain thousands of correlated
+            # readings. Surface a reviewable queue, rather than flooding the
+            # operator with one recommendation per row.
+            for idx, row in anomalies.head(50).iterrows():
                 mid = row.get('meter_id', None)
                 cons = row.get('consumption', None)
                 ts = row.get('timestamp', None)
@@ -121,7 +130,10 @@ class RecommendationEngine:
                     'suggestion': suggestion,
                     'estimated_monthly_savings': 0.0,
                     'meter_id': mid,
-                    'anomaly_index': idx
+                    'anomaly_index': idx,
+                    'evidence': 'Flagged by the anomaly-detection workflow; it is not a fault diagnosis.',
+                    'confidence': 'Review required',
+                    'next_step': 'Compare against maintenance records and meter telemetry before taking action.',
                 })
 
         # From segments: suggest targeted actions for High usage segments
@@ -134,10 +146,13 @@ class RecommendationEngine:
                     'issue': f'Segment {s} shows high consumption',
                     'suggestion': 'Targeted efficiency campaign and time-of-use incentives for this segment',
                     'estimated_monthly_savings': 0.0,
-                    'segment': s
+                    'segment': s,
+                    'evidence': f'{seg_counts[s]:,} consumers belong to this usage segment.',
+                    'confidence': 'Medium',
+                    'next_step': 'Validate segment economics and customer eligibility before launching an incentive.',
                 })
 
         if not recs:
-            recs.append({'issue': 'No significant recommendations', 'suggestion': 'No actions identified from forecasts/anomalies/segments', 'estimated_monthly_savings': 0.0})
+            recs.append({'issue': 'No significant recommendations', 'suggestion': 'No actions identified from forecasts, anomalies, or segments.', 'estimated_monthly_savings': 0.0, 'evidence': 'No configured rule threshold was exceeded.', 'confidence': 'High', 'next_step': 'Continue monitoring and rerun after new readings arrive.'})
 
         return pd.DataFrame(recs)
