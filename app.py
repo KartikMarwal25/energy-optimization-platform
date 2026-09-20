@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 import glob
-from PIL import Image
 import streamlit.components.v1 as components
 import pandas as pd
 from src.database.db import Database
@@ -21,9 +20,40 @@ setup_logging()
 DB_PATH = "data/processed/database.sqlite"
 
 
+def apply_dashboard_theme() -> None:
+    """Apply a compact, readable visual system without adding frontend assets."""
+    st.markdown(
+        """
+        <style>
+          :root { --ink: #102A43; --muted: #627D98; --brand: #087E8B; --accent: #FFB703; }
+          .stApp { background: #F5F8FA; color: var(--ink); }
+          section[data-testid="stSidebar"] { background: #102A43; }
+          section[data-testid="stSidebar"] * { color: #F5F8FA; }
+          section[data-testid="stSidebar"] .stSelectbox label { color: #B8D8E3; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
+          .block-container { max-width: 1440px; padding-top: 2.2rem; padding-bottom: 3rem; }
+          h1, h2, h3 { color: #102A43; letter-spacing: -.025em; }
+          h1 { font-weight: 750; }
+          div[data-testid="stMetric"] { background: #FFFFFF; border: 1px solid #D9E2EC; border-radius: 14px; padding: 1rem 1.15rem; }
+          div[data-testid="stMetricLabel"] { color: #627D98; font-size: .82rem; }
+          div[data-testid="stMetricValue"] { color: #087E8B; }
+          .stButton > button, .stDownloadButton > button { border-radius: 8px; font-weight: 600; }
+          .stButton > button[kind="primary"] { background: #087E8B; border-color: #087E8B; }
+          .hero { background: linear-gradient(120deg, #102A43, #087E8B); border-radius: 18px; color: white; padding: 2rem 2.25rem; margin-bottom: 1.5rem; }
+          .hero h2 { color: white; margin: 0 0 .35rem; }
+          .hero p { color: #D9F0F3; margin: 0; font-size: 1rem; }
+          .workflow-card { background: #FFFFFF; border: 1px solid #D9E2EC; border-radius: 12px; padding: 1rem 1.15rem; min-height: 120px; }
+          .workflow-card strong { color: #087E8B; display: block; margin-bottom: .35rem; }
+          .workflow-card span { color: #627D98; font-size: .9rem; }
+          .stAlert { border-radius: 10px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def main():
-    st.set_page_config(page_title="Autonomous Energy Optimization", layout="wide")
-    st.title("Autonomous Energy Optimization Platform for Smart Grids")
+    st.set_page_config(page_title="GridPulse | Energy Operations", page_icon="⚡", layout="wide")
+    apply_dashboard_theme()
     db = Database(DB_PATH)
 
     menu = [
@@ -39,7 +69,12 @@ def main():
         "Reports",
         "Settings",
     ]
-    choice = st.sidebar.selectbox("Navigation", menu)
+    st.sidebar.markdown("## ⚡ GridPulse")
+    st.sidebar.caption("Energy operations intelligence")
+    choice = st.sidebar.selectbox("Workspace", menu)
+    st.sidebar.markdown("---")
+    st.sidebar.caption("Recommended workflow")
+    st.sidebar.markdown("1. Validate data\n2. Explore demand\n3. Forecast and detect anomalies\n4. Prioritize actions\n5. Export the brief")
 
     # Cache raw and processed data so widget interactions don't re-run heavy pipelines
     @st.cache_data(show_spinner=False)
@@ -89,14 +124,34 @@ def main():
         return df2
 
     if choice == "Home":
-        st.header("Overview")
-        st.write("Dataset preview and summary metrics")
-        st.dataframe(_arrow_safe(processed.head(50)))
-        st.markdown("**Basic summary**")
-        st.write(processed.describe(include='all'))
+        st.markdown("""
+          <div class="hero">
+            <h2>Energy operations, made actionable.</h2>
+            <p>Monitor demand, identify exceptions, and turn analytics into practical grid actions.</p>
+          </div>
+        """, unsafe_allow_html=True)
+        total_consumption = processed['consumption'].sum() if 'consumption' in processed else 0
+        timestamp = pd.to_datetime(processed['timestamp'], errors='coerce') if 'timestamp' in processed else pd.Series(dtype='datetime64[ns]')
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Meter readings", f"{len(processed):,}")
+        col2.metric("Active meters", f"{processed['meter_id'].nunique():,}" if 'meter_id' in processed else "—")
+        col3.metric("Total consumption", f"{total_consumption:,.0f} kWh")
+        col4.metric("Data through", timestamp.max().strftime('%d %b %Y') if not timestamp.empty and pd.notna(timestamp.max()) else "—")
+
+        st.subheader("Start here")
+        start_1, start_2, start_3 = st.columns(3)
+        start_1.markdown('<div class="workflow-card"><strong>1 — Understand demand</strong><span>Use EDA to reveal daily peaks, seasonality, and top consumers.</span></div>', unsafe_allow_html=True)
+        start_2.markdown('<div class="workflow-card"><strong>2 — Find risk</strong><span>Run forecasting and anomaly detection on an appropriately sized sample.</span></div>', unsafe_allow_html=True)
+        start_3.markdown('<div class="workflow-card"><strong>3 — Take action</strong><span>Segment consumers, generate recommendations, then export an executive report.</span></div>', unsafe_allow_html=True)
+
+        with st.expander("Inspect dataset preview and descriptive statistics"):
+            st.dataframe(_arrow_safe(processed.head(50)), use_container_width=True)
+            st.markdown("**Basic summary**")
+            st.dataframe(_arrow_safe(processed.describe(include='all').transpose()), use_container_width=True)
 
     if choice == "Dataset":
-        st.header("Dataset")
+        st.header("Data quality & exploration")
+        st.caption("Review source fields before generating forecasts or recommendations.")
         st.subheader("Raw sample")
         st.dataframe(_arrow_safe(raw.head(100)))
         st.subheader("Processed sample")
@@ -104,7 +159,7 @@ def main():
         st.download_button("Download processed CSV", processed.to_csv(index=False), file_name="processed.csv")
 
     if choice == "EDA":
-        st.header("Exploratory Data Analysis")
+        st.header("Demand exploration")
         st.write("Interactive charts (Plotly). Charts are saved under `reports/figs/` as HTML files.")
         # generate_all_plots can be expensive; require explicit run and persist in session_state
         @st.cache_data(show_spinner=False)
@@ -138,12 +193,12 @@ def main():
             st.write(f"Saved: {path}")
 
     if choice == "Forecasting":
-        st.header("Forecasting")
+        st.header("Consumption forecast")
         mm = None
         # instantiate ModelManager only when running the forecast
         if 'forecasts' not in st.session_state:
             st.session_state['forecasts'] = {}
-        st.write("Select a consumer and forecast horizon, then run a quick forecast (simple linear trend).")
+        st.write("Choose a meter, horizon, and baseline method to estimate future daily demand.")
         # consumer selector
         consumers = processed['meter_id'].astype(str).unique().tolist() if 'meter_id' in processed.columns else []
         consumer = st.selectbox("Consumer (meter_id)", options=consumers[:200] if consumers else [], index=0 if consumers else None)
@@ -238,7 +293,7 @@ def main():
                 st.write(f"Minimum forecast day: {min_day}")
 
     if choice == "Anomaly Detection":
-        st.header("Anomaly Detection")
+        st.header("Anomaly detection")
         total_rows = len(processed)
         st.write("Anomaly detection can be expensive on large datasets. Use a smaller sample size for faster results.")
         st.write(f"Processed dataset rows: {total_rows}")
@@ -270,7 +325,7 @@ def main():
                 st.dataframe(_arrow_safe(anomalies.head(50)))
 
     if choice == "Customer Segmentation":
-        st.header("Customer Segmentation")
+        st.header("Customer segmentation")
         ce = ClusterEngine(processed)
         if st.button("Run clustering"):
             with st.spinner("Running clustering..."):
@@ -318,7 +373,7 @@ def main():
             
 
     if choice == "Optimization Engine":
-        st.header("Recommendations")
+        st.header("Recommended actions")
         re = RecommendationEngine(processed)
         if 'recommendations' not in st.session_state:
             st.session_state['recommendations'] = pd.DataFrame()
@@ -341,7 +396,7 @@ def main():
             st.download_button("Download recommendations CSV", data=csv_bytes, file_name='recommendations.csv')
 
     if choice == "Explainability":
-        st.header("Explainability")
+        st.header("Model explainability")
         expl = Explainability(processed)
         model_dir = os.path.join(os.getcwd(), 'models')
         model_files = []
@@ -396,7 +451,7 @@ def main():
                 st.error(f'Error rendering SHAP plots: {e}')
 
     if choice == "Model Performance":
-        st.header("Model Performance")
+        st.header("Model performance")
         st.write("Saved model metrics, metadata, and model analysis are shown below.")
 
         models_df = db.query_table('models')
@@ -504,7 +559,7 @@ def main():
             st.info('No saved model files found in models/ directory.')
 
     if choice == "Reports":
-        st.header("Generated Reports")
+        st.header("Executive reporting")
         st.write("See reports/ for generated summaries, charts, and executive export files.")
 
         if st.button("Generate Executive Report"):
