@@ -84,8 +84,17 @@ def main():
 
     @st.cache_data(show_spinner=False)
     def _cached_preprocess(df_raw):
-        # The loader maintains the reusable parquet cache.  Avoid rewriting a
-        # very large CSV on every new Streamlit session.
+        # ``load_raw_data`` returns the reusable parquet cache when available.
+        # That cache has already been standardized and feature-engineered by
+        # the loader, so processing it a second time delayed every navigation
+        # event and could make the previous screen appear to be "stuck".
+        cached_feature_columns = {"timestamp", "consumption", "hour", "lag_1", "roll_mean_3"}
+        if cached_feature_columns.issubset(df_raw.columns):
+            return df_raw
+
+        # New uploads/raw source data still use the complete pipeline, but are
+        # kept in memory for the active session instead of rewriting the large
+        # compatibility CSV during navigation.
         return preprocess_pipeline(df_raw, persist=False)
 
     # Load raw data once and keep in session_state to avoid spinner on every rerun
@@ -151,10 +160,10 @@ def main():
 
     if choice == "Dataset":
         st.header("Data quality & exploration")
-        st.caption("Review source fields before generating forecasts or recommendations.")
-        st.subheader("Raw sample")
+        st.caption("Review the loaded data before generating forecasts or recommendations.")
+        st.subheader("Loaded source sample")
         st.dataframe(_arrow_safe(raw.head(100)))
-        st.subheader("Processed sample")
+        st.subheader("Analytics-ready sample")
         st.dataframe(_arrow_safe(processed.head(100)))
         st.download_button("Download processed CSV", processed.to_csv(index=False), file_name="processed.csv")
 
