@@ -25,7 +25,7 @@ def apply_dashboard_theme() -> None:
     st.markdown(
         """
         <style>
-          :root { --ink: #102A43; --muted: #627D98; --brand: #087E8B; --accent: #FFB703; }
+          :root { --ink: #102A43; --muted: #486581; --brand: #087E8B; --accent: #FFB703; }
           .stApp { background: #F5F8FA; color: var(--ink); }
           section[data-testid="stSidebar"] { background: #102A43; }
           section[data-testid="stSidebar"] * { color: #F5F8FA; }
@@ -34,7 +34,7 @@ def apply_dashboard_theme() -> None:
           h1, h2, h3 { color: #102A43; letter-spacing: -.025em; }
           h1 { font-weight: 750; }
           div[data-testid="stMetric"] { background: #FFFFFF; border: 1px solid #D9E2EC; border-radius: 14px; padding: 1rem 1.15rem; }
-          div[data-testid="stMetricLabel"] { color: #627D98; font-size: .82rem; }
+          div[data-testid="stMetricLabel"] { color: #486581; font-size: .82rem; }
           div[data-testid="stMetricValue"] { color: #087E8B; }
           .stButton > button, .stDownloadButton > button { background: #087E8B; border: 1px solid #087E8B; border-radius: 8px; color: #FFFFFF !important; font-weight: 650; }
           .stButton > button *, .stDownloadButton > button * { color: #FFFFFF !important; }
@@ -48,8 +48,18 @@ def apply_dashboard_theme() -> None:
           .hero p { color: #D9F0F3; margin: 0; font-size: 1rem; }
           .workflow-card { background: #FFFFFF; border: 1px solid #D9E2EC; border-radius: 12px; padding: 1rem 1.15rem; min-height: 120px; }
           .workflow-card strong { color: #087E8B; display: block; margin-bottom: .35rem; }
-          .workflow-card span { color: #627D98; font-size: .9rem; }
+          .workflow-card span { color: #486581; font-size: .9rem; }
           .stAlert { border-radius: 10px; }
+          [data-testid="stMain"] label, [data-testid="stMain"] [data-testid="stWidgetLabel"] p, [data-testid="stMain"] [data-testid="stMarkdownContainer"] p, [data-testid="stMain"] [data-testid="stCaptionContainer"] { color: var(--ink) !important; }
+          [data-testid="stMain"] [data-testid="stCaptionContainer"] { color: var(--muted) !important; }
+          [data-testid="stMain"] .stButton button p, [data-testid="stMain"] .stDownloadButton button p, [data-testid="stMain"] [data-testid="stFormSubmitButton"] button p { color: #FFFFFF !important; }
+          [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * { opacity: 1 !important; }
+          section[data-testid="stSidebar"] [data-testid="stCaptionContainer"], section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] * { color: #B8D8E3 !important; }
+          section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] li { color: #F5F8FA !important; }
+          body:has(section[data-testid="stSidebar"] input[aria-expanded="true"]) [data-baseweb="popover"] span { color: #F5F8FA !important; }
+          [data-testid="stMain"] .hero p { color: #D9F0F3 !important; }
+          [data-testid="stMain"] .hero h2 { color: #FFFFFF !important; }
+          [data-testid="stMain"] [data-baseweb="select"] > div, [data-testid="stMain"] input, [data-testid="stMain"] textarea { background: #FFFFFF; color: var(--ink); border-color: #BCCCDC; }
         </style>
         """,
         unsafe_allow_html=True,
